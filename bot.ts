@@ -394,25 +394,25 @@ export class Bot {
     if (this.config.priceCheckDuration === 0 || this.config.priceCheckInterval === 0) {
       return;
     }
-
+  
     const timesToCheck = this.config.priceCheckDuration / this.config.priceCheckInterval;
     const profitFraction = this.config.quoteAmount.mul(this.config.takeProfit).numerator.div(new BN(100));
     const profitAmount = new TokenAmount(this.config.quoteToken, profitFraction, true);
     const takeProfit = this.config.quoteAmount.add(profitAmount);
-
     const lossFraction = this.config.quoteAmount.mul(this.config.stopLoss).numerator.div(new BN(100));
     const lossAmount = new TokenAmount(this.config.quoteToken, lossFraction, true);
     const stopLoss = this.config.quoteAmount.subtract(lossAmount);
     const slippage = new Percent(this.config.sellSlippage, 100);
+  
     let timesChecked = 0;
-
+  
     do {
       try {
         const poolInfo = await Liquidity.fetchInfo({
           connection: this.connection,
           poolKeys,
         });
-
+  
         const amountOut = Liquidity.computeAmountOut({
           poolKeys,
           poolInfo,
@@ -420,20 +420,29 @@ export class Bot {
           currencyOut: this.config.quoteToken,
           slippage,
         }).amountOut;
-
+  
+        // Calculate the percentage change from the purchase price
+        const purchasePrice = this.config.quoteAmount;
+        const percentageChange = amountOut.numerator
+          .mul(purchasePrice.denominator)
+          .div(purchasePrice.numerator)
+          .sub(purchasePrice.denominator)
+          .mul(new BN(100))
+          .div(purchasePrice.denominator);
+  
         logger.debug(
           { mint: poolKeys.baseMint.toString() },
-          `Take profit: ${takeProfit.toFixed()} | Stop loss: ${stopLoss.toFixed()} | Current: ${amountOut.toFixed()}`,
+          `Take profit: ${takeProfit.toFixed()} | Stop loss: ${stopLoss.toFixed()} | Current: ${amountOut.toFixed()} | Percentage Change: ${percentageChange.toString()}%`,
         );
-
+  
         if (amountOut.lt(stopLoss)) {
           break;
         }
-
+  
         if (amountOut.gt(takeProfit)) {
           break;
         }
-
+  
         await sleep(this.config.priceCheckInterval);
       } catch (e) {
         logger.trace({ mint: poolKeys.baseMint.toString(), e }, `Failed to check token price`);
@@ -441,5 +450,4 @@ export class Bot {
         timesChecked++;
       }
     } while (timesChecked < timesToCheck);
-  }
-}
+  }}
